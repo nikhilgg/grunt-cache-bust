@@ -6,9 +6,11 @@ module.exports = function(grunt) {
     var path    = require('path');
     var crypto  = require('crypto');
     var cheerio = require('cheerio');
+	var fileData;
 
     var remoteRegex    = /http:|https:|\/\/|data:image/;
-    var extensionRegex = /(\.[a-zA-Z]{2,4})(|\?.*)$/;
+    //var extensionRegex = /(\.[js]|[css]|[jpg]|[gif]|[png])(|\?.*)$/;
+	var extensionRegex = /(\.(js|css))(|\?.*)$/;
 
     var regexEscape = function(str) {
         return str.replace(/[\-\[\]\/\{\}\(\)\*\+\?\.\\\^\$\|]/g, "\\$&");
@@ -34,6 +36,7 @@ module.exports = function(grunt) {
     };
 
     var checkIfHasExtension = function() {
+		//grunt.log.writeln(extensionRegex.test(this.attr('src')) || extensionRegex.test(this.attr('href')));
         return extensionRegex.test(this.attr('src')) || extensionRegex.test(this.attr('href'));
     };
 
@@ -59,7 +62,7 @@ module.exports = function(grunt) {
         var stylesheets = $('link[rel="stylesheet"]').filter(checkIfValidFile).map(function() { return this.attr('href'); });
         var images      = $('img').filter(checkIfValidFile).map(function() { return this.attr('src'); });
         var favicons    = $('link[rel="icon"], link[rel="shortcut icon"]').filter(checkIfValidFile).map(function() { return this.attr('href'); });
-
+		
         return [].concat(scripts, stylesheets, images, favicons);
     };
 
@@ -69,8 +72,16 @@ module.exports = function(grunt) {
 
         var opts = grunt.util._.defaults(this.options(), options);
 
-        var generateHash = function(fileData) {
-            return opts.hash || crypto.createHash(opts.algorithm).update(fileData, opts.encoding).digest('hex').substring(0, opts.length);
+        var generateHash = function(filename) {
+			var fileHash = Math.ceil((Math.random()*100000)+1).toString();
+			if (opts.hash){
+				fileHash = opts.hash;
+			}else if(grunt.file.exists(filename)){
+				fileHash = crypto.createHash(opts.algorithm).update(grunt.file.read(filename), opts.encoding).digest('hex').substring(0, opts.length);
+			}else{
+				grunt.log.warn('Static asset "' + filename + '" not found. Hash would be a random number'); 
+			}
+            return fileHash; //opts.hash || crypto.createHash(opts.algorithm).update(fileData, opts.encoding).digest('hex').substring(0, opts.length);
         };
 
         this.files.forEach(function(f) {
@@ -84,12 +95,19 @@ module.exports = function(grunt) {
                 }
             }).map(function(filepath) {
                 var markup = grunt.file.read(filepath);
-
+				grunt.log.writeln ('filepath :' + filepath); //Nikhil
                 findStaticAssets(markup).forEach(function(reference) {
+					
                     var _reference = reference;
                     var filePath   = opts.baseDir + '/';
                     var filename   = path.normalize((filePath + reference).split('?')[0]);
                     var extension  = path.extname(filename);
+					
+					
+					var subDir = filepath.substring(0, filepath.lastIndexOf('/'));
+					//grunt.log.writeln ('filepath 2 ' + subDir); //Nikhil
+				//	grunt.log.writeln ('js file name '+reference);
+					//grunt.log.writeln ('CWD '+process.cwd());
 
                     var newFilename;
 
@@ -109,13 +127,13 @@ module.exports = function(grunt) {
                                 });
                             });
                         }
-
+						
                         if(!grunt.file.exists(filename)) {
                             grunt.log.warn('Static asset "' + filename + '" skipped because it wasn\'t found.');
                             return false;
                         }
-
-                        var hash = generateHash(grunt.file.read(filename));
+					//	grunt.log.writeln (filename + ' Printing'); //Nikhil
+                        var hash = generateHash(filename);
 
                         // Create our new filename
                         newFilename = filename.replace(extension, '') +'_'+ hash + extension;
@@ -131,12 +149,26 @@ module.exports = function(grunt) {
                             grunt.file.delete(filename);
                         }
                     } else {
-                        newFilename = reference.split('?')[0] + '?' + generateHash(grunt.file.read(filename));
+					
+						if(filename.substring(0,2)=='..'){
+						//filename= process.cwd()+ filename.substring(filename.lastIndexOf('..'));
+						filename=process.cwd() + '\\'+ subDir+ '\\'+ filename;
+						grunt.log.writeln(filename); //Nikhil
+						}else if(subDir){
+						filename=process.cwd() + '\\'+ subDir+ '\\'+ filename;
+						}else{						
+						filename=process.cwd() + '\\'+ filename;
+						grunt.log.writeln(filename);
+						}
+						
+                        
+						newFilename = reference.split('?')[0] + '?cb=' + generateHash(filename); //Nikhil
                         markup = markup.replace(new RegExp(regexEscape(reference), 'g'), newFilename);
-                    }
+						//grunt.log.writeln (newFilename); //Nikhil
+					}
                 });
 
-                grunt.file.write(filepath, markup);
+                grunt.file.write(filepath, '\ufeff' + markup);
 
                 grunt.log.writeln(filepath + ' was busted!');
             });
